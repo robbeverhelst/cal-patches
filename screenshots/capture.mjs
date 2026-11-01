@@ -1,6 +1,6 @@
 // Capture the booker of the seeded dummy event at desktop and mobile width.
 //   node capture.mjs <label> <outDir> <booked YYYY-MM-DD> <blocked YYYY-MM-DD> <expectBusy 0|1>
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { chromium } from "playwright";
 
 const [label, outDir, booked, blocked, expectBusy] = process.argv.slice(2);
@@ -28,6 +28,12 @@ for (const [viewport, size] of Object.entries(viewports)) {
   for (const shot of shots) {
     if (shot.desktopOnly && viewport !== "desktop") continue;
     const page = await context.newPage();
+    // Keep the slots responses next to the shots, to tell a server problem from a UI one.
+    const responses = [];
+    page.on("response", async (response) => {
+      if (!response.url().includes("getSchedule")) return;
+      responses.push({ url: response.url(), status: response.status(), body: await response.text().catch(() => "") });
+    });
     await page.goto(`${base}?${new URLSearchParams(shot.query)}`, { waitUntil: "networkidle", timeout: 120_000 });
     if (!shot.query.layout) {
       await page
@@ -38,6 +44,7 @@ for (const [viewport, size] of Object.entries(viewports)) {
     busyCounts[`${viewport}/${shot.name}`] = await page.locator("[data-busy]").count();
     const file = `${outDir}/${label}-${viewport}-${shot.name}.png`;
     await page.screenshot({ path: file, fullPage: true });
+    await writeFile(file.replace(/\.png$/, ".slots.json"), JSON.stringify(responses, null, 1));
     console.log(`${file} (busy slots on page: ${busyCounts[`${viewport}/${shot.name}`]})`);
     await page.close();
   }

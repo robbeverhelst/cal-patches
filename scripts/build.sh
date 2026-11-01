@@ -22,8 +22,6 @@ docker run -d --name "$db" -p 5432:5432 \
   -e POSTGRES_USER=cal -e POSTGRES_PASSWORD=cal -e POSTGRES_DB=cal postgres:16 >&2
 until docker exec "$db" pg_isready -U cal >/dev/null 2>&1; do sleep 1; done
 
-# No org.opencontainers.image.source label: GHCR would link the package to this public
-# repository and it could inherit public visibility.
 docker build --network host \
   --build-arg NEXT_PUBLIC_WEBAPP_URL=http://localhost:3000 \
   --build-arg NEXT_PUBLIC_API_V2_URL=http://localhost:5555/api/v2 \
@@ -31,10 +29,5 @@ docker build --network host \
   --build-arg DATABASE_URL=postgresql://cal:cal@localhost:5432/cal \
   --build-arg DATABASE_DIRECT_URL=postgresql://cal:cal@localhost:5432/cal \
   -t "$image:$tag" "$src" >&2
-
-if docker image inspect "$image:$tag" --format '{{json .Config.Labels}}' | grep -q 'org.opencontainers.image.source'; then
-  echo "::error::$image:$tag carries an org.opencontainers.image.source label; refusing to continue." >&2
-  exit 1
-fi
 
 echo "$image:$tag"

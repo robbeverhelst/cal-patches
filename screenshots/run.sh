@@ -47,5 +47,6 @@ if ! { [ "$code" = 200 ] || [ "$code" = 307 ]; }; then
   exit 1
 fi
 
+echo "$label: CAL_SHOW_BUSY_SLOTS=$(docker exec "$app" printenv CAL_SHOW_BUSY_SLOTS || true)"
 docker exec -i "$db" psql -q -U cal -d cal -v booked="$booked" -v blocked="$blocked" <"$here/seed.sql"
 node "$here/capture.mjs" "$label" "$out" "$booked" "$blocked" "$expect_busy"

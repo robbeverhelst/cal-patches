@@ -41,7 +41,7 @@ Files touched (against v6.2.0):
 
 The workflow pushes `ghcr.io/robbeverhelst/cal-patches:<CAL_VERSION>-p<sha256(patches)[:12]>`. The same release and patches always give the same tag, and an existing tag is not rebuilt (run the workflow by hand with `force` to rebuild). The job summary prints the pushed `image:tag@digest`; deployments should pin that digest.
 
-The package is **private**. The image deliberately carries no `org.opencontainers.image.source` label, so GHCR doesn't link it to this public repository. Pulling needs a token with `read:packages`.
+The package is **public**, like upstream's own image: it holds the upstream release, the public patches and upstream's placeholder build values, and nothing deployment-specific (URLs, secrets and the flag are all set at runtime). Pull it without credentials.
 
 The build needs about 16 GB of RAM (Next.js build, `MAX_OLD_SPACE_SIZE=6144`) and takes 20–35 minutes on a GitHub-hosted runner. Locally, with Docker:
 
