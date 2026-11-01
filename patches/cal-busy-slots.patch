@@ -322,3 +322,15 @@ index 14fba5d..ce1c7e2 100644
      const allDatesWithBookabilityStatus = this.getAllDatesWithBookabilityStatus(availableDates);
  
      // timeZone isn't directly set on eventType now(So, it is legacy)
+diff --git a/turbo.json b/turbo.json
+index cf7697f..971f80b 100644
+--- a/turbo.json
++++ b/turbo.json
+@@ -21,6 +21,7 @@
+     "BUILD_ID",
+     "CAL_AI_CALL_RATE_PER_MINUTE",
+     "CAL_SIGNATURE_TOKEN",
++    "CAL_SHOW_BUSY_SLOTS",
+     "CALCOM_PRIVATE_API_ROUTE",
+     "CALCOM_APP_CREDENTIAL_ENCRYPTION_KEY",
+     "CALCOM_CREDENTIAL_SYNC_ENDPOINT",

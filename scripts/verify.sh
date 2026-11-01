@@ -10,6 +10,10 @@ src="$root/src"
 cp "$root/tests/busySlots.test.ts" "$src/apps/web/test/lib/getSchedule/busySlots.test.ts"
 
 cd "$src"
+# The image starts Cal with `turbo run start`, and turbo only passes env vars listed in
+# turbo.json globalEnv. Without this entry the flag never reaches the server.
+node -e 'if (!require("./turbo.json").globalEnv.includes("CAL_SHOW_BUSY_SLOTS")) { console.error("CAL_SHOW_BUSY_SLOTS is missing from turbo.json globalEnv"); process.exit(1) }'
+
 corepack enable
 # Same install settings as upstream's CI (.github/actions/yarn-install).
 YARN_ENABLE_IMMUTABLE_INSTALLS=false YARN_ENABLE_GLOBAL_CACHE=false YARN_NM_MODE=hardlinks-local HUSKY=0 \

@@ -33,6 +33,7 @@ Files touched (against v6.2.0):
 | `packages/features/availability/lib/getUserAvailability.ts` | Also returns the weekly working hours alone (`workingHoursDateRanges`) when the flag is on |
 | `packages/trpc/server/routers/viewer/slots/util.ts` | Adds every working-hours slot that isn't bookable back as `{ time, busy: true }`; busy-only days don't count as available days for rolling windows |
 | `packages/features/calendars/lib/types.ts`, `packages/features/bookings/Booker/hooks/useAvailableTimeSlots.ts` | `busy` on the slot types; busy slots are not clickable cells in week view |
+| `turbo.json` | Adds `CAL_SHOW_BUSY_SLOTS` to `globalEnv`. The image starts Cal with `turbo run start`, and turbo's strict env mode drops any variable not listed there |
 | `apps/web/modules/bookings/components/AvailableTimes.tsx` | Busy slots render disabled, with the label and `data-busy` |
 | `apps/web/modules/bookings/components/LargeCalendar.tsx` | Busy slots render as outlined blocks in week view |
 | `packages/features/calendars/components/DatePicker.tsx`, `apps/web/modules/bookings/components/DatePicker.tsx` | Automatic date selection and the next-month jump skip busy-only days |
