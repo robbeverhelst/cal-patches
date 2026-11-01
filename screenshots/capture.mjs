@@ -36,6 +36,16 @@ for (const [viewport, size] of Object.entries(viewports)) {
     });
     await page.goto(`${base}?${new URLSearchParams(shot.query)}`, { waitUntil: "networkidle", timeout: 120_000 });
     if (!shot.query.layout) {
+      // Click the day like a visitor would. A day whose slots are all busy is never
+      // auto-selected, so a ?date= link alone doesn't open it. Upstream disables that day.
+      const dayNumber = String(Number(shot.query.date.slice(8)));
+      const day = page
+        .locator('[data-testid="day"]')
+        .filter({ hasText: new RegExp(`^${dayNumber}(\\D|$)`) })
+        .first();
+      if ((await day.count()) && (await day.getAttribute("data-disabled")) !== "true") {
+        await day.click();
+      }
       await page
         .waitForSelector('[data-testid="time"], [data-testid="no-slots-available"]', { timeout: 60_000 })
         .catch(() => console.warn(`${label} ${viewport} ${shot.name}: no time list rendered`));
@@ -43,7 +53,8 @@ for (const [viewport, size] of Object.entries(viewports)) {
     await page.waitForTimeout(1500);
     busyCounts[`${viewport}/${shot.name}`] = await page.locator("[data-busy]").count();
     const file = `${outDir}/${label}-${viewport}-${shot.name}.png`;
-    await page.screenshot({ path: file, fullPage: true });
+    // Week view lays itself out to the viewport; a full-page capture squashes its columns.
+    await page.screenshot({ path: file, fullPage: !shot.query.layout });
     await writeFile(file.replace(/\.png$/, ".slots.json"), JSON.stringify(responses, null, 1));
     console.log(`${file} (busy slots on page: ${busyCounts[`${viewport}/${shot.name}`]})`);
     await page.close();
