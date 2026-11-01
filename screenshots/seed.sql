@@ -3,8 +3,8 @@
 -- psql variables: booked (YYYY-MM-DD, booking at 10:00), blocked (YYYY-MM-DD, unavailable all day).
 \set ON_ERROR_STOP on
 
-INSERT INTO users (id, username, name, email, "timeZone", "weekStart", "timeFormat", locale, "completedOnboarding", "emailVerified")
-VALUES (1001, 'demo', 'Demo', 'demo@example.com', 'Europe/Brussels', 'Monday', 24, 'nl', true, now());
+INSERT INTO users (id, uuid, username, name, email, "timeZone", "weekStart", "timeFormat", locale, "completedOnboarding", "emailVerified")
+VALUES (1001, gen_random_uuid(), 'demo', 'Demo', 'demo@example.com', 'Europe/Brussels', 'Monday', 24, 'nl', true, now());
 
 INSERT INTO "Schedule" (id, "userId", name, "timeZone") VALUES (1001, 1001, 'Working hours', 'Europe/Brussels');
 UPDATE users SET "defaultScheduleId" = 1001 WHERE id = 1001;
