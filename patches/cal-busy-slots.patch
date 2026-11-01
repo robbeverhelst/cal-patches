@@ -1,0 +1,336 @@
+diff --git a/apps/web/modules/bookings/components/AvailableTimes.tsx b/apps/web/modules/bookings/components/AvailableTimes.tsx
+index 5f495ad..67d4f20 100644
+--- a/apps/web/modules/bookings/components/AvailableTimes.tsx
++++ b/apps/web/modules/bookings/components/AvailableTimes.tsx
+@@ -162,9 +162,11 @@ const SlotItem = ({
+             isVerificationCodeSending ||
+             loadingStates?.creatingInstantBooking ||
+             (skipConfirmStep && !!shouldRenderCaptcha && !watchedCfToken) ||
+-            isTimeslotUnavailable
++            isTimeslotUnavailable ||
++            !!slot.busy
+           }
+           data-testid="time"
++          data-busy={slot.busy || undefined}
+           data-disabled={bookingFull}
+           data-time={slot.time}
+           onClick={onButtonClick}
+@@ -186,6 +188,7 @@ const SlotItem = ({
+             {computedDateWithUsersTimezone.format(timeFormat)}
+           </div>
+           {bookingFull && <p className="text-sm">{t("booking_full")}</p>}
++          {slot.busy && <p className="text-sm">{t("timeslot_unavailable_short")}</p>}
+           {hasTimeSlots && !bookingFull && (
+             <p className="flex items-center text-sm">
+               <span
+diff --git a/apps/web/modules/bookings/components/DatePicker.tsx b/apps/web/modules/bookings/components/DatePicker.tsx
+index 1c1a57e..921fe18 100644
+--- a/apps/web/modules/bookings/components/DatePicker.tsx
++++ b/apps/web/modules/bookings/components/DatePicker.tsx
+@@ -100,11 +100,13 @@ export const DatePicker = ({
+   };
+ 
+   const nonEmptyScheduleDays = useNonEmptyScheduleDays(slots);
++  // CAL_SHOW_BUSY_SLOTS: days with only busy slots don't count as availability for the next-month jump.
++  const bookableScheduleDays = nonEmptyScheduleDays.filter((date) => slots[date]?.some((slot) => !slot.busy));
+   const browsingDate = month ? dayjs(month) : dayjs().startOf("month");
+ 
+   const { moveToNextMonthOnNoAvailability } = useMoveToNextMonthOnNoAvailability({
+     browsingDate,
+-    nonEmptyScheduleDays,
++    nonEmptyScheduleDays: bookableScheduleDays,
+     onMonthChange,
+     isLoading: isLoading ?? true,
+   });
+diff --git a/apps/web/modules/bookings/components/LargeCalendar.tsx b/apps/web/modules/bookings/components/LargeCalendar.tsx
+index 2ad5740..2c061d5 100644
+--- a/apps/web/modules/bookings/components/LargeCalendar.tsx
++++ b/apps/web/modules/bookings/components/LargeCalendar.tsx
+@@ -9,6 +9,7 @@ import { getQueryParam } from "@calcom/features/bookings/Booker/utils/query-para
+ import type { BookerEvent } from "@calcom/features/bookings/types";
+ import { Calendar } from "@calcom/features/calendars/weeklyview/components/Calendar";
+ import type { CalendarEvent } from "@calcom/features/calendars/weeklyview/types/events";
++import { useLocale } from "@calcom/lib/hooks/useLocale";
+ import { localStorage } from "@calcom/lib/webstorage";
+ 
+ import type { useScheduleForEventReturnType } from "@calcom/web/modules/schedules/hooks/useEvent";
+@@ -35,6 +36,7 @@ export const LargeCalendar = ({
+   const displayOverlay =
+     getQueryParam("overlayCalendar") === "true" || localStorage?.getItem("overlayCalendarSwitchDefault");
+   const { timezone } = useBookerTime();
++  const { t } = useLocale();
+ 
+   const eventDuration = selectedEventDuration || event?.data?.length || 30;
+ 
+@@ -65,6 +67,20 @@ export const LargeCalendar = ({
+     });
+   }, [overlayEvents, displayOverlay]);
+ 
++  const busyEvents = useMemo(() => {
++    const busy = Object.values(schedule?.slots ?? {}).flatMap((slots) => slots.filter((slot) => slot.busy));
++    return busy.map(
++      (slot, id) =>
++        ({
++          id: -1 - id,
++          start: dayjs(slot.time).toDate(),
++          end: dayjs(slot.time).add(eventDuration, "minutes").toDate(),
++          title: t("timeslot_unavailable_short"),
++          options: { status: "ACCEPTED", borderOnly: true },
++        }) as CalendarEvent
++    );
++  }, [schedule, eventDuration, t]);
++
+   return (
+     <div className="h-full [--calendar-dates-sticky-offset:66px]">
+       <Calendar
+@@ -72,7 +88,7 @@ export const LargeCalendar = ({
+         availableTimeslots={availableSlots}
+         startHour={0}
+         endHour={23}
+-        events={overlayEventsForDate}
++        events={[...overlayEventsForDate, ...busyEvents]}
+         startDate={startDate}
+         endDate={endDate}
+         onEmptyCellClick={(date) => setSelectedTimeslot(date.toISOString())}
+diff --git a/packages/features/availability/lib/getUserAvailability.ts b/packages/features/availability/lib/getUserAvailability.ts
+index d044b78..ff96bb5 100644
+--- a/packages/features/availability/lib/getUserAvailability.ts
++++ b/packages/features/availability/lib/getUserAvailability.ts
+@@ -178,6 +178,11 @@ export type GetUserAvailabilityResult = {
+     start: dayjs.Dayjs;
+     end: dayjs.Dayjs;
+   }[];
++  // CAL_SHOW_BUSY_SLOTS: the weekly hours alone, before overrides, OOO and busy times.
++  workingHoursDateRanges?: {
++    start: dayjs.Dayjs;
++    end: dayjs.Dayjs;
++  }[];
+   workingHours: WorkingHoursWithUserId[];
+   dateOverrides: TimeRange[];
+   currentSeats:
+@@ -498,12 +503,24 @@ export class UserAvailabilityService {
+       outOfOffice: datesOutOfOffice,
+     });
+ 
++    const workingHoursDateRanges =
++      process.env.CAL_SHOW_BUSY_SLOTS === "true"
++        ? buildDateRanges({
++            dateFrom,
++            dateTo,
++            availability: availability.filter((a) => !a.date),
++            timeZone: finalTimezone,
++            travelSchedules,
++          }).dateRanges
++        : undefined;
++
+     if (dateRanges.length === 0)
+       return {
+         busy: [],
+         timeZone: finalTimezone,
+         dateRanges: [],
+         oooExcludedDateRanges: [],
++        workingHoursDateRanges,
+         workingHours: [],
+         dateOverrides: [],
+         currentSeats: [],
+@@ -644,6 +661,7 @@ export class UserAvailabilityService {
+       timeZone: finalTimezone,
+       dateRanges: dateRangesInWhichUserIsAvailable,
+       oooExcludedDateRanges: dateRangesInWhichUserIsAvailableWithoutOOO,
++      workingHoursDateRanges,
+       workingHours,
+       dateOverrides,
+       currentSeats,
+diff --git a/packages/features/bookings/Booker/hooks/useAvailableTimeSlots.ts b/packages/features/bookings/Booker/hooks/useAvailableTimeSlots.ts
+index 37c2a95..f6b197b 100644
+--- a/packages/features/bookings/Booker/hooks/useAvailableTimeSlots.ts
++++ b/packages/features/bookings/Booker/hooks/useAvailableTimeSlots.ts
+@@ -17,6 +17,7 @@ export interface IGetAvailableSlots {
+       reason?: string | undefined;
+       emoji?: string | undefined;
+       showNotePublicly?: boolean | undefined;
++      busy?: boolean | undefined;
+     }[]
+   >;
+   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+@@ -34,7 +35,7 @@ export const useAvailableTimeSlots = ({ schedule, eventDuration }: UseAvailableT
+     if (!schedule || !schedule.slots) return availableTimeslots;
+ 
+     for (const day in schedule.slots) {
+-      availableTimeslots[day] = schedule.slots[day].map((slot) => {
++      availableTimeslots[day] = schedule.slots[day].filter((slot) => !slot.busy).map((slot) => {
+         const { time, ...rest } = slot;
+         return {
+           start: dayjs(time).toDate(),
+diff --git a/packages/features/calendars/components/DatePicker.tsx b/packages/features/calendars/components/DatePicker.tsx
+index 846ff07..61c3386 100644
+--- a/packages/features/calendars/components/DatePicker.tsx
++++ b/packages/features/calendars/components/DatePicker.tsx
+@@ -1,4 +1,4 @@
+-import { useEffect } from "react";
++import { useEffect, useRef } from "react";
+ import { shallow } from "zustand/shallow";
+ 
+ import type { Dayjs } from "@calcom/dayjs";
+@@ -278,6 +278,14 @@ const Days = ({
+     };
+   });
+ 
++  // CAL_SHOW_BUSY_SLOTS: a day whose slots are all busy stays clickable, but auto-selection
++  // (first load, month change) skips it and lands on the first day with a bookable slot.
++  const clickedDateRef = useRef<string | null>(null);
++  const isBusyOnlyDay = (day: Dayjs | null) => {
++    const daySlots = (day && slots?.[yyyymmdd(day)]) || [];
++    return daySlots.length > 0 && daySlots.every((slot) => slot.busy);
++  };
++
+   /**
+    * Takes care of selecting a valid date in the month if the selected date is not available in the month
+    */
+@@ -292,10 +300,18 @@ const Days = ({
+     if (selected instanceof Array) {
+       return;
+     }
+-    const firstAvailableDateOfTheMonth = daysToRenderForTheMonth.find((day) => !day.disabled)?.day;
++    const firstAvailableDateOfTheMonth = daysToRenderForTheMonth.find(
++      (day) => !day.disabled && !isBusyOnlyDay(day.day)
++    )?.day;
+     const isSelectedDateAvailable = selected
+       ? daysToRenderForTheMonth.some(({ day, disabled }) => {
+-          if (day && yyyymmdd(day) === yyyymmdd(selected) && !disabled) return true;
++          if (
++            day &&
++            yyyymmdd(day) === yyyymmdd(selected) &&
++            !disabled &&
++            (!isBusyOnlyDay(day) || clickedDateRef.current === yyyymmdd(day))
++          )
++            return true;
+         })
+       : false;
+     if (!isSelectedDateAvailable && firstAvailableDateOfTheMonth) {
+@@ -306,7 +322,7 @@ const Days = ({
+     if (isSelectedDateAvailable) {
+       props.onChange(dayjs(selected), true);
+     }
+-    if (!firstAvailableDateOfTheMonth) {
++    if (!firstAvailableDateOfTheMonth && !isSelectedDateAvailable) {
+       props.onChange(null);
+     }
+   };
+@@ -334,6 +350,7 @@ const Days = ({
+               }}
+               date={day}
+               onClick={() => {
++                clickedDateRef.current = yyyymmdd(day);
+                 props.onChange(day);
+                 props?.scrollToTimeSlots?.();
+               }}
+diff --git a/packages/features/calendars/lib/types.ts b/packages/features/calendars/lib/types.ts
+index 8bf2df2..e7fc231 100644
+--- a/packages/features/calendars/lib/types.ts
++++ b/packages/features/calendars/lib/types.ts
+@@ -9,6 +9,7 @@ export type SlotInfo = {
+   reason?: string;
+   emoji?: string;
+   showNotePublicly?: boolean;
++  busy?: boolean;
+ };
+ 
+ export type Slots = Record<string, SlotInfo[]>;
+diff --git a/packages/trpc/server/routers/viewer/slots/util.ts b/packages/trpc/server/routers/viewer/slots/util.ts
+index 14fba5d..ce1c7e2 100644
+--- a/packages/trpc/server/routers/viewer/slots/util.ts
++++ b/packages/trpc/server/routers/viewer/slots/util.ts
+@@ -967,7 +967,15 @@ export class AvailableSlotsService {
+     /* We get all users working hours and busy slots */
+     const allUsersAvailability = premappedUsersAvailability.map(
+       (
+-        { busy, dateRanges, oooExcludedDateRanges, currentSeats: _currentSeats, timeZone, datesOutOfOffice },
++        {
++          busy,
++          dateRanges,
++          oooExcludedDateRanges,
++          workingHoursDateRanges,
++          currentSeats: _currentSeats,
++          timeZone,
++          datesOutOfOffice,
++        },
+         index
+       ) => {
+         const currentUser = users[index];
+@@ -976,6 +984,7 @@ export class AvailableSlotsService {
+           timeZone,
+           dateRanges,
+           oooExcludedDateRanges,
++          workingHoursDateRanges,
+           busy,
+           user: currentUser,
+           datesOutOfOffice,
+@@ -1435,6 +1444,31 @@ export class AvailableSlotsService {
+         );
+     }
+ 
++    // CAL_SHOW_BUSY_SLOTS: every working-hours slot that is not bookable goes back in as
++    // { time, busy: true } and nothing else, so the public response names no booking or reason.
++    const showBusySlots =
++      process.env.CAL_SHOW_BUSY_SLOTS === "true" &&
++      !isTeamEvent &&
++      !eventType.seatsPerTimeSlot &&
++      !eventType.onlyShowFirstAvailableSlot;
++    let slotsToReturn: ((typeof availableTimeSlots)[number] & { busy?: boolean })[] = availableTimeSlots;
++    if (showBusySlots) {
++      const bookable = availableTimeSlots.filter((slot) => !slot.away);
++      const bookableTimes = new Set(bookable.map((slot) => slot.time.valueOf()));
++      const busySlots = getSlots({
++        inviteeDate: startTime,
++        eventLength: input.duration || eventType.length,
++        offsetStart: eventType.offsetStart,
++        dateRanges: allUsersAvailability[0]?.workingHoursDateRanges ?? [],
++        minimumBookingNotice: eventType.minimumBookingNotice,
++        frequency: eventType.slotInterval || input.duration || eventType.length,
++        showOptimizedSlots: eventType.showOptimizedSlots,
++      })
++        .filter((slot) => !bookableTimes.has(slot.time.valueOf()))
++        .map((slot) => ({ time: slot.time, busy: true }));
++      slotsToReturn = [...bookable, ...busySlots].sort((a, b) => a.time.valueOf() - b.time.valueOf());
++    }
++
+     // fr-CA uses YYYY-MM-DD
+     const formatter = new Intl.DateTimeFormat("fr-CA", {
+       year: "numeric",
+@@ -1456,9 +1490,9 @@ export class AvailableSlotsService {
+         });
+       }
+ 
+-      return availableTimeSlots.reduce(
++      return slotsToReturn.reduce(
+         (
+-          r: Record<string, { time: string; attendees?: number; bookingUid?: string }[]>,
++          r: Record<string, { time: string; attendees?: number; bookingUid?: string; busy?: boolean }[]>,
+           { time, ...passThroughProps }
+         ) => {
+           // This used to be _time.tz(input.timeZone) but Dayjs tz() is slow.
+@@ -1489,7 +1523,10 @@ export class AvailableSlotsService {
+     const mapSlotsToDate = withReporting(_mapSlotsToDate.bind(this), "mapSlotsToDate");
+     const slotsMappedToDate = mapSlotsToDate();
+ 
+-    const availableDates = Object.keys(slotsMappedToDate);
++    // Busy-only days must not count as bookable days for ROLLING_WINDOW.
++    const availableDates = Object.keys(slotsMappedToDate).filter((date) =>
++      slotsMappedToDate[date].some((slot) => !slot.busy)
++    );
+     const allDatesWithBookabilityStatus = this.getAllDatesWithBookabilityStatus(availableDates);
+ 
+     // timeZone isn't directly set on eventType now(So, it is legacy)
+diff --git a/turbo.json b/turbo.json
+index cf7697f..971f80b 100644
+--- a/turbo.json
++++ b/turbo.json
+@@ -21,6 +21,7 @@
+     "BUILD_ID",
+     "CAL_AI_CALL_RATE_PER_MINUTE",
+     "CAL_SIGNATURE_TOKEN",
++    "CAL_SHOW_BUSY_SLOTS",
+     "CALCOM_PRIVATE_API_ROUTE",
+     "CALCOM_APP_CREDENTIAL_ENCRYPTION_KEY",
+     "CALCOM_CREDENTIAL_SYNC_ENDPOINT",
