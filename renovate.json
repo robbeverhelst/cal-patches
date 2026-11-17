@@ -1,0 +1,22 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
+  "timezone": "UTC",
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The pinned upstream Cal.com release in upstream.env",
+      "managerFilePatterns": ["/^upstream\\.env$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s*\\nCAL_VERSION=(?<currentValue>\\S+)"
+      ]
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "A Cal.com bump can break a patch; never automerge it",
+      "matchDepNames": ["calcom/cal.com"],
+      "automerge": false
+    }
+  ]
+}
